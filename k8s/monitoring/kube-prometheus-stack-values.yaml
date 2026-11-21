@@ -1,0 +1,70 @@
+# Helm values for prometheus-community/kube-prometheus-stack (release name: kps)
+# Everything runs on the system node; storage is ephemeral (the cluster is destroyed after each session).
+
+alertmanager:
+  enabled: false
+
+defaultRules:
+  create: false # no alerting in this project; saves memory on the small system node
+
+# EKS control plane components are managed by AWS and not scrapeable
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    nodeSelector:
+      role: system
+    scrapeInterval: 15s
+    retention: 2d
+    # Pick up ServiceMonitors from every namespace (e.g. llm/vllm), not only this Helm release
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1536Mi
+
+prometheusOperator:
+  nodeSelector:
+    role: system
+  admissionWebhooks:
+    patch:
+      nodeSelector:
+        role: system
+
+kube-state-metrics:
+  nodeSelector:
+    role: system
+
+# Node metrics (CPU, RAM, disk, network) on every node, including the tainted inference node
+prometheus-node-exporter:
+  tolerations:
+    - operator: Exists
+
+grafana:
+  nodeSelector:
+    role: system
+  admin:
+    existingSecret: grafana-admin # keys: admin-user, admin-password
+  persistence:
+    enabled: false
+  defaultDashboardsTimezone: browser
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard # ConfigMaps with this label become dashboards
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi

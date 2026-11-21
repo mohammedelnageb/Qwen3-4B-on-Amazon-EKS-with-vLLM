@@ -1,0 +1,17 @@
+# Tells Prometheus to scrape vLLM's /metrics endpoint every 15s.
+# /metrics is not protected by the vLLM API key (only /v1/* routes are).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vllm
+  namespace: llm
+  labels:
+    app: vllm
+spec:
+  selector:
+    matchLabels:
+      app: vllm
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
