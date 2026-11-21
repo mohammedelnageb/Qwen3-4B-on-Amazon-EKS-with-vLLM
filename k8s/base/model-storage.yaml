@@ -1,0 +1,37 @@
+# Static S3 volume via Mountpoint for Amazon S3 CSI driver.
+# The bucket appears as a read-only folder inside the vLLM pod.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: qwen-models-pv
+spec:
+  capacity:
+    storage: 50Gi # required by Kubernetes, ignored by S3
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: ""
+  claimRef:
+    namespace: llm
+    name: qwen-models
+  mountOptions:
+    - region us-east-1
+    - read-only
+  csi:
+    driver: s3.csi.aws.com
+    volumeHandle: qwen-models-volume
+    volumeAttributes:
+      bucketName: qwen-models-058264225887
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qwen-models
+  namespace: llm
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: ""
+  volumeName: qwen-models-pv
+  resources:
+    requests:
+      storage: 50Gi

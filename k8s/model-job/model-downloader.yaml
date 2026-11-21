@@ -1,0 +1,68 @@
+# One-time Job: Hugging Face -> S3 model bucket.
+# AWS credentials come from EKS Pod Identity (see terraform/envs/dev/iam.tf).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: model-downloader
+  namespace: llm
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: model-downloader
+  namespace: llm
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      serviceAccountName: model-downloader
+      restartPolicy: Never
+      nodeSelector:
+        role: system
+      containers:
+        - name: downloader
+          image: python:3.12-slim
+          env:
+            - name: AWS_REGION
+              value: us-east-1
+            - name: MODEL_ID
+              value: Qwen/Qwen3-4B-Instruct-2507
+            - name: MODEL_DIR
+              value: Qwen3-4B-Instruct-2507
+            - name: BUCKET
+              value: qwen-models-058264225887
+            - name: HF_TOKEN_SECRET_ID
+              value: qwen-eks/hf-token
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              pip install --no-cache-dir -q "huggingface_hub[hf_xet]" awscli
+
+              echo "Reading Hugging Face token from Secrets Manager..."
+              export HF_TOKEN=$(aws secretsmanager get-secret-value \
+                --secret-id "$HF_TOKEN_SECRET_ID" --query SecretString --output text)
+
+              echo "Downloading $MODEL_ID ..."
+              hf download "$MODEL_ID" --local-dir "/work/$MODEL_DIR"
+              rm -rf "/work/$MODEL_DIR/.cache"
+
+              echo "Uploading to s3://$BUCKET/$MODEL_DIR/ ..."
+              aws s3 sync "/work/$MODEL_DIR" "s3://$BUCKET/$MODEL_DIR/"
+
+              echo "Done:"
+              aws s3 ls "s3://$BUCKET/$MODEL_DIR/" --human-readable
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: work
+              mountPath: /work
+      volumes:
+        - name: work
+          emptyDir:
+            sizeLimit: 20Gi

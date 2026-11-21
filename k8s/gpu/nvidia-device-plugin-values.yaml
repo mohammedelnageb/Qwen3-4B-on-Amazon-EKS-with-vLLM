@@ -1,0 +1,12 @@
+# Helm values for nvdp/nvidia-device-plugin
+# Runs only on the GPU node group and advertises nvidia.com/gpu to Kubernetes.
+nodeSelector:
+  role: gpu
+
+# Remove the chart's default affinity (it expects NFD/GFD labels we don't install)
+affinity: null
+
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule

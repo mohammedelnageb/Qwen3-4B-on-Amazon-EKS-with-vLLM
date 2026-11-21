@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars and edit
+# Your public IP:  curl -s https://checkip.amazonaws.com
+admin_cidrs = ["203.0.113.10/32"]
+
+# 0 = no GPU node, 1 = start one g6.xlarge
+gpu_desired_size = 0
