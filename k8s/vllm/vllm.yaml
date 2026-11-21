@@ -1,4 +1,4 @@
-# vLLM OpenAI-compatible server for Qwen3-4B on one L4 GPU (g6.xlarge).
+# vLLM OpenAI-compatible server for Qwen3-4B on CPU (m7i.2xlarge: 8 vCPU, 32 GiB, AMX/AVX-512).
 # Requires the secret: kubectl -n llm create secret generic vllm-api-key --from-literal=key=...
 apiVersion: apps/v1
 kind: Deployment
@@ -10,7 +10,7 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate # only one GPU: stop the old pod before starting the new one
+    type: Recreate # one inference node: stop the old pod before starting the new one
   selector:
     matchLabels:
       app: vllm
@@ -19,22 +19,28 @@ spec:
       labels:
         app: vllm
     spec:
+      enableServiceLinks: false
       nodeSelector:
-        role: gpu
+        role: inference
       tolerations:
-        - key: nvidia.com/gpu
-          operator: Exists
+        - key: workload
+          operator: Equal
+          value: inference
           effect: NoSchedule
       containers:
         - name: vllm
-          image: vllm/vllm-openai:latest # pin a version tag after the first successful run
+          # Official vLLM x86 CPU image; pin a version tag after the first successful run
+          image: public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:latest
           args:
-            - --model=/models/Qwen3-4B-Instruct-2507
+            - /models/Qwen3-4B-Instruct-2507
+            - --safetensors-load-strategy=prefetch
             - --served-model-name=qwen3-4b
             - --host=0.0.0.0
             - --port=8000
+            - --dtype=bfloat16
             - --max-model-len=8192
-            - --gpu-memory-utilization=0.90
+            - --enable-auto-tool-choice
+            - --tool-call-parser=hermes
           env:
             - name: VLLM_API_KEY
               valueFrom:
@@ -43,24 +49,27 @@ spec:
                   key: key
             - name: HF_HUB_OFFLINE
               value: "1"
+            # KV cache size in GiB (lives in RAM on CPU)
+            - name: VLLM_CPU_KVCACHE_SPACE
+              value: "8"
+            - name: VLLM_CPU_OMP_THREADS_BIND
+              value: "auto"
           ports:
             - name: http
               containerPort: 8000
           resources:
             requests:
-              cpu: "3"
-              memory: 12Gi
-              nvidia.com/gpu: "1"
+              cpu: "6500m" # leave room for DaemonSets on the 8 vCPU node
+              memory: 24Gi
             limits:
-              memory: 14Gi
-              nvidia.com/gpu: "1"
-          # Model load can take minutes: allow up to 10 min before liveness kicks in
+              memory: 28Gi
+          # CPU model load is slower: allow up to 15 min before liveness kicks in
           startupProbe:
             httpGet:
               path: /health
               port: http
             periodSeconds: 10
-            failureThreshold: 60
+            failureThreshold: 180
           readinessProbe:
             httpGet:
               path: /health
@@ -86,7 +95,7 @@ spec:
         - name: dshm
           emptyDir:
             medium: Memory
-            sizeLimit: 2Gi
+            sizeLimit: 4Gi
 ---
 apiVersion: v1
 kind: Service

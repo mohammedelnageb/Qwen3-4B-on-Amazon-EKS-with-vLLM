@@ -2,5 +2,8 @@
 # Your public IP:  curl -s https://checkip.amazonaws.com
 admin_cidrs = ["203.0.113.10/32"]
 
-# 0 = no GPU node, 1 = start one g6.xlarge
-gpu_desired_size = 0
+# aws eks describe-cluster-versions --query 'clusterVersions[?defaultVersion==`true`].clusterVersion' --output text
+kubernetes_version = "1.xx"
+
+# 0 = no inference node, 1 = start one m7i.2xlarge for vLLM
+inference_desired_size = 0

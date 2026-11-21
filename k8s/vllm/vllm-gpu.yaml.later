@@ -1,0 +1,105 @@
+# LATER (GPU): vLLM on one L4 GPU (g6.xlarge). Not used in the CPU phase.
+# Requires the secret: kubectl -n llm create secret generic vllm-api-key --from-literal=key=...
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: llm
+  labels:
+    app: vllm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # only one GPU: stop the old pod before starting the new one
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+    spec:
+      nodeSelector:
+        role: gpu
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:latest # pin a version tag after the first successful run
+          args:
+            - --model=/models/Qwen3-4B-Instruct-2507
+            - --served-model-name=qwen3-4b
+            - --host=0.0.0.0
+            - --port=8000
+            - --max-model-len=8192
+            - --gpu-memory-utilization=0.90
+          env:
+            - name: VLLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vllm-api-key
+                  key: key
+            - name: HF_HUB_OFFLINE
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "3"
+              memory: 12Gi
+              nvidia.com/gpu: "1"
+            limits:
+              memory: 14Gi
+              nvidia.com/gpu: "1"
+          # Model load can take minutes: allow up to 10 min before liveness kicks in
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: qwen-models
+            readOnly: true
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm
+  namespace: llm
+  labels:
+    app: vllm
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

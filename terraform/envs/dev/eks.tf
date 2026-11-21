@@ -37,7 +37,7 @@ module "eks" {
     aws-mountpoint-s3-csi-driver = {
       most_recent              = true
       service_account_role_arn = aws_iam_role.mountpoint_s3.arn
-      # Node plugin must also run on the tainted GPU node
+      # Node plugin must also run on the tainted inference node
       configuration_values = jsonencode({
         node = {
           tolerateAllTaints = true
@@ -74,21 +74,22 @@ module "eks" {
       }
     }
 
-    # GPU: scale 0 <-> 1 manually (desired_size changes are ignored after creation)
-    gpu = {
-      ami_type       = "AL2023_x86_64_NVIDIA" # NVIDIA driver preinstalled
-      instance_types = var.gpu_instance_types
+    # vLLM on CPU: scale 0 <-> 1 manually (desired_size changes are ignored after creation)
+    # Later, for GPU: ami_type = "AL2023_x86_64_NVIDIA", instance_types = ["g6.xlarge"]
+    inference = {
+      ami_type       = "AL2023_x86_64_STANDARD"
+      instance_types = var.inference_instance_types
       capacity_type  = "ON_DEMAND"
 
       min_size     = 0
       max_size     = 1
-      desired_size = var.gpu_desired_size
+      desired_size = var.inference_desired_size
 
       block_device_mappings = {
         xvda = {
           device_name = "/dev/xvda"
           ebs = {
-            volume_size           = 100 # vLLM image is large
+            volume_size           = 60 # vLLM CPU image + logs
             volume_type           = "gp3"
             delete_on_termination = true
           }
@@ -96,14 +97,14 @@ module "eks" {
       }
 
       labels = {
-        role = "gpu"
+        role = "inference"
       }
 
-      # Only pods that tolerate this taint (vLLM) land on the GPU node
+      # Only pods that tolerate this taint (vLLM) land on the inference node
       taints = {
-        gpu = {
-          key    = "nvidia.com/gpu"
-          value  = "true"
+        inference = {
+          key    = "workload"
+          value  = "inference"
           effect = "NO_SCHEDULE"
         }
       }

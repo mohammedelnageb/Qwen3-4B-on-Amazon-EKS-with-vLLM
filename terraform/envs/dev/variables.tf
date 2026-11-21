@@ -16,7 +16,7 @@ variable "kubernetes_version" {
 }
 
 variable "azs" {
-  description = "Two AZs where g6.xlarge is available"
+  description = "Two AZs for the VPC and EKS subnets"
   type        = list(string)
   default     = ["us-east-1a", "us-east-1b"]
 }
@@ -31,13 +31,14 @@ variable "admin_cidrs" {
   type        = list(string)
 }
 
-variable "gpu_instance_types" {
-  type    = list(string)
-  default = ["g6.xlarge"]
+variable "inference_instance_types" {
+  description = "CPU instance for vLLM (Intel with AMX/AVX-512)"
+  type        = list(string)
+  default     = ["m7i.2xlarge"]
 }
 
-variable "gpu_desired_size" {
-  description = "0 = no GPU node (no GPU cost), 1 = one GPU node"
+variable "inference_desired_size" {
+  description = "0 = no inference node (no cost), 1 = one inference node"
   type        = number
   default     = 0
 }

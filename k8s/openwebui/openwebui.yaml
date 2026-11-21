@@ -1,0 +1,105 @@
+# Open WebUI: chat UI on the system node, talking to vLLM inside the cluster.
+# Requires: base/storageclass-gp3.yaml, secret vllm-api-key, secret openwebui-secret
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openwebui-data
+  namespace: llm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openwebui
+  namespace: llm
+  labels:
+    app: openwebui
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # the EBS volume can attach to one pod at a time
+  selector:
+    matchLabels:
+      app: openwebui
+  template:
+    metadata:
+      labels:
+        app: openwebui
+    spec:
+      nodeSelector:
+        role: system
+      containers:
+        - name: openwebui
+          image: ghcr.io/open-webui/open-webui:main # pin a version tag after the first successful run
+          env:
+            # vLLM's OpenAI-compatible API, via the in-cluster Service
+            - name: OPENAI_API_BASE_URL
+              value: http://vllm.llm.svc.cluster.local:8000/v1
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vllm-api-key
+                  key: key
+            - name: ENABLE_OLLAMA_API
+              value: "false"
+            # Public app: anyone can sign up, but new users wait for admin approval
+            # (applied on first start; later changes are made in the Admin Panel)
+            - name: ENABLE_SIGNUP
+              value: "true"
+            - name: DEFAULT_USER_ROLE
+              value: "pending"
+            # Keeps login sessions valid across pod restarts
+            - name: WEBUI_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openwebui-secret
+                  key: key
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              memory: 2Gi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /app/backend/data # users, chats, settings (SQLite)
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: openwebui-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openwebui
+  namespace: llm
+  labels:
+    app: openwebui
+spec:
+  type: ClusterIP
+  selector:
+    app: openwebui
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
